@@ -35,7 +35,7 @@ from chatchat.webui_pages.utils import *
 
 parser.add_argument("--use-remote-api", action="store_true")
 parser.add_argument("--nohup", action="store_true")
-parser.add_argument("--server.port", type=int, default=8501)
+parser.add_argument("--server.port", type=int, default=8301)
 parser.add_argument("--theme.base", type=str, default='"light"')
 parser.add_argument("--theme.primaryColor", type=str, default='"#165dff"')
 parser.add_argument("--theme.secondaryBackgroundColor", type=str, default='"#f5f5f5"')

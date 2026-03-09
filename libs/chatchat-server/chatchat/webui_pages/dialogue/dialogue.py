@@ -150,6 +150,7 @@ def dialogue_page(
     api: ApiRequest,
     is_lite: bool = False,
 ):
+    use_mcp = False  # 默认值，避免在未启用 Agent 时未定义
     ctx = chat_box.context
     ctx.setdefault("uid", uuid.uuid4().hex)
     ctx.setdefault("file_chat_id", None)
@@ -210,6 +211,7 @@ def dialogue_page(
             # 选择工具
             tools = list_tools(api)
             tool_names = ["None"] + list(tools)
+            use_mcp = False
             if use_agent:
                 use_mcp = st.checkbox("使用MCP", key="use_mcp")
                 # selected_tools = sac.checkbox(list(tools), format_func=lambda x: tools[x]["title"], label="选择工具",

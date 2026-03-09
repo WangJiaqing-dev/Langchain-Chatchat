@@ -233,7 +233,7 @@ def kb_chat(api: ApiRequest):
             chat_box.update_msg(text, streaming=False)
             # TODO: 搜索未配置API KEY时产生报错
         except Exception as e:
-            st.error(e.body)
+            st.error(getattr(e, "body", None) or str(e))
 
     now = datetime.now()
     with tabs[1]:

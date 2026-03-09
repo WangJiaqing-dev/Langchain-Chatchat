@@ -39,5 +39,5 @@ RUN python cli.py init
 # 初始化知识库文件
 ADD data.tar.gz $CHATCHAT_ROOT/
 
-EXPOSE 7861 8501
+EXPOSE 7861 8301
 ENTRYPOINT ["python", "cli.py", "start", "-a"]

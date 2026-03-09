@@ -1,5 +1,13 @@
-import click
+# 直接运行本脚本时（如 python chatchat/cli.py），将项目根加入 sys.path 以便导入 chatchat
+import sys
 from pathlib import Path
+try:
+    import chatchat  # noqa: F401
+except ModuleNotFoundError:
+    _server_root = Path(__file__).resolve().parent.parent
+    sys.path.insert(0, str(_server_root))
+
+import click
 import shutil
 import typing as t
 

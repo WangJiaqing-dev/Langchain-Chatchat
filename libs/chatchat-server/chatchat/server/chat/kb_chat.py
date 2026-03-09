@@ -58,6 +58,8 @@ async def kb_chat(query: str = Body(..., description="用户输入", examples=["
                     description="使用的prompt模板名称(在prompt_settings.yaml中配置)"
                 ),
                 return_direct: bool = Body(False, description="直接返回检索结果，不送入 LLM"),
+                return_docs: bool = Body(True, description="响应中是否包含检索文档内容，设为 false 可减少 token 占用"),
+                docs_snippet_len: int = Body(0, description="响应中每条 doc 最大字符数，0 表示不截断，>0 时仅截断响应中的 docs，不影响模型上下文"),
                 request: Request = None,
                 ):
     if mode == "local_kb":
@@ -101,6 +103,16 @@ async def kb_chat(query: str = Body(..., description="用户输入", examples=["
             else:
                 docs = []
                 source_documents = []
+            # 响应中的 docs：可关闭或截断以节省 token，不影响送入 LLM 的 context
+            if not return_docs:
+                response_docs = []
+            elif docs_snippet_len > 0:
+                response_docs = [
+                    (s[:docs_snippet_len] + "..." if len(s) > docs_snippet_len else s)
+                    for s in source_documents
+                ]
+            else:
+                response_docs = source_documents
             # import rich
             # rich.print(dict(
             #     mode=mode,
@@ -118,7 +130,7 @@ async def kb_chat(query: str = Body(..., description="用户输入", examples=["
                     content="",
                     role="assistant",
                     finish_reason="stop",
-                    docs=source_documents,
+                    docs=response_docs,
                 ) .model_dump_json()
                 return
 
@@ -179,6 +191,13 @@ async def kb_chat(query: str = Body(..., description="用户输入", examples=["
 
             if len(source_documents) == 0:  # 没有找到相关文档
                 source_documents.append(f"<span style='color:red'>未找到相关文档,该回答为大模型自身能力解答！</span>")
+                if not return_docs:
+                    response_docs = []
+                elif docs_snippet_len > 0:
+                    s = source_documents[0]
+                    response_docs = [s[:docs_snippet_len] + "..." if len(s) > docs_snippet_len else s]
+                else:
+                    response_docs = source_documents
 
             if stream:
                 # yield documents first
@@ -188,7 +207,7 @@ async def kb_chat(query: str = Body(..., description="用户输入", examples=["
                     content="",
                     role="assistant",
                     model=model,
-                    docs=source_documents,
+                    docs=response_docs,
                 )
                 yield ret.model_dump_json()
 

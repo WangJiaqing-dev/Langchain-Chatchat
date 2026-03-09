@@ -61,6 +61,8 @@ async def kb_chat_endpoint(
         max_tokens=body.max_tokens,
         prompt_name=extra.get("prompt_name", "default"),
         return_direct=extra.get("return_direct", False),
+        return_docs=extra.get("return_docs", True),
+        docs_snippet_len=int(extra.get("docs_snippet_len", 0)),
         request=request,
     )
     return ret

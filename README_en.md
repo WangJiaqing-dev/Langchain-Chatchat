@@ -453,11 +453,11 @@ Successful startup output:
 >     "HTTPX_DEFAULT_TIMEOUT": 300.0,
 >     "OPEN_CROSS_DOMAIN": true,
 >     "DEFAULT_BIND_HOST": "127.0.0.1",
->     "WEBUI_SERVER_PORT": 8501,
+>     "WEBUI_SERVER_PORT": 8301,
 >     "API_SERVER_PORT": 7861,
 >     "WEBUI_SERVER": {
 >         "host": "127.0.0.1",
->         "port": 8501
+>         "port": 8301
 >     },
 >     "API_SERVER": {
 >         "host": "127.0.0.1",
@@ -476,11 +476,11 @@ Successful startup output:
 >     "HTTPX_DEFAULT_TIMEOUT": 300.0,
 >     "OPEN_CROSS_DOMAIN": true,
 >     "DEFAULT_BIND_HOST": "0.0.0.0",
->     "WEBUI_SERVER_PORT": 8501,
+>     "WEBUI_SERVER_PORT": 8301,
 >     "API_SERVER_PORT": 7861,
 >     "WEBUI_SERVER": {
 >         "host": "0.0.0.0",
->         "port": 8501
+>         "port": 8301
 >     },
 >     "API_SERVER": {
 >         "host": "0.0.0.0",

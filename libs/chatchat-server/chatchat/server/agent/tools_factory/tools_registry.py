@@ -45,22 +45,23 @@ def _new_to_args_and_kwargs(self, tool_input: Union[str, Dict]) -> Tuple[Tuple, 
     # pass as a positional argument.
     if isinstance(tool_input, str):
         return (tool_input,), {}
-    else:
-        # for tool defined with `*args` parameters
-        # the args_schema has a field named `args`
-        # it should be expanded to actual *args
-        # e.g.: test_tools
-        #       .test_named_tool_decorator_return_direct
-        #       .search_api
-        if "args" in tool_input:
-            args = tool_input["args"]
-            if args is None:
-                tool_input.pop("args")
-                return (), tool_input
-            elif isinstance(args, tuple):
-                tool_input.pop("args")
-                return args, tool_input
-        return (), tool_input
+    if tool_input is None or not isinstance(tool_input, dict):
+        return (), {}
+    # for tool defined with `*args` parameters
+    # the args_schema has a field named `args`
+    # it should be expanded to actual *args
+    # e.g.: test_tools
+    #       .test_named_tool_decorator_return_direct
+    #       .search_api
+    if "args" in tool_input:
+        args = tool_input["args"]
+        if args is None:
+            tool_input.pop("args")
+            return (), tool_input
+        elif isinstance(args, tuple):
+            tool_input.pop("args")
+            return args, tool_input
+    return (), tool_input
 
 
 BaseTool._parse_input = _new_parse_input

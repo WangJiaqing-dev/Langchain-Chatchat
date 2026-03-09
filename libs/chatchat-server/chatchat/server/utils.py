@@ -349,11 +349,41 @@ def get_OpenAI(
     return model
 
 
+# 缓存 sentence_transformers 类 Embedding 实例，避免对话/知识库检索时重复从 HF 拉取模型导致大量 hf-mirror 请求
+_embedding_cache: Dict[str, "Embeddings"] = {}
+
+
+def get_hf_hub_cache_dir() -> Path:
+    """HuggingFace Hub 本地缓存根目录。受环境变量 HF_HOME 或 HUGGINGFACE_HUB_CACHE 影响。"""
+    if path := os.environ.get("HUGGINGFACE_HUB_CACHE"):
+        return Path(path)
+    hf_home = os.environ.get("HF_HOME") or (Path.home() / ".cache" / "huggingface")
+    return Path(hf_home) / "hub"
+
+
+def is_hf_model_cached(model_id: str) -> Tuple[bool, Path]:
+    """
+    检查 HuggingFace 模型是否已下载到本地缓存。
+    :param model_id: 模型 ID，如 BAAI/bge-small-zh-v1.5
+    :return: (是否已缓存, 缓存目录路径)。目录存在且内含 snapshots 即视为已缓存。
+    """
+    hub_dir = get_hf_hub_cache_dir()
+    # Hub 缓存目录名：models--Org--ModelName（斜杠替换为 --）
+    folder_name = "models--" + model_id.replace("/", "--")
+    model_dir = hub_dir / folder_name
+    if not model_dir.is_dir():
+        return False, model_dir
+    # 有 snapshots 子目录且非空通常表示已完整下载
+    snapshots = model_dir / "snapshots"
+    return snapshots.is_dir() and any(snapshots.iterdir()), model_dir
+
+
 def get_Embeddings(
         embed_model: str = None,
         local_wrap: bool = False,  # use local wrapped api
 ) -> Embeddings:
     from langchain_community.embeddings import OllamaEmbeddings
+    from langchain_community.embeddings import HuggingFaceEmbeddings
     from langchain_openai import OpenAIEmbeddings
 
     from chatchat.server.localai_embeddings import (
@@ -364,6 +394,18 @@ def get_Embeddings(
     model_info = get_model_info(model_name=embed_model)
     params = dict(model=embed_model)
     try:
+        if model_info.get("platform_type") == "sentence_transformers":
+            # 本地 sentence-transformers 模型，复用实例避免重复加载（减少对 hf-mirror 的多次请求）
+            if embed_model not in _embedding_cache:
+                _embedding_cache[embed_model] = HuggingFaceEmbeddings(
+                    model_name=embed_model,
+                    model_kwargs={
+                        "device": "cpu",
+                        "local_files_only": True,  # 仅用本地缓存，不请求 hf-mirror.com
+                    },
+                    encode_kwargs={"normalize_embeddings": True},
+                )
+            return _embedding_cache[embed_model]
         if local_wrap:
             params.update(
                 openai_api_base=f"{api_address()}/v1",
@@ -940,7 +982,11 @@ def update_search_local_knowledgebase_tool():
     from chatchat.server.db.repository.knowledge_base_repository import list_kbs_from_db
 
     kbs = list_kbs_from_db()
-    template = "Use local knowledgebase from one or more of these:\n{KB_info}\n to get information，Only local data on this knowledge use this tool. The 'database' should be one of the above [{key}]."
+    template = (
+        "Use local knowledgebase from one or more of these:\n{KB_info}\n to get information. "
+        "Only local data on this knowledge use this tool. The 'database' should be one of the above [{key}]. "
+        "For any user question, call this tool first and answer based on the returned content when relevant."
+    )
     KB_info_str = "\n".join([f"{kb.kb_name}: {kb.kb_info}" for kb in kbs])
     KB_name_info_str = "\n".join([f"{kb.kb_name}" for kb in kbs])
     template_knowledge = template.format(KB_info=KB_info_str, key=KB_name_info_str)

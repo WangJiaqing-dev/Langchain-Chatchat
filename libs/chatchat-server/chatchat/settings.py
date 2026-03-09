@@ -7,8 +7,13 @@ import typing as t
 
 import nltk
 
+from pydantic import field_validator
+
 from chatchat import __version__
 from chatchat.pydantic_settings_file import *
+
+# 允许的 platform_type，与 get_Embeddings 等逻辑一致；新增类型时在此补充
+PLATFORM_TYPES = ("xinference", "ollama", "oneapi", "fastchat", "openai", "custom openai", "sentence_transformers")
 
 
 # chatchat 数据目录，必须通过环境变量设置。如未设置则自动使用当前目录。
@@ -110,7 +115,7 @@ class BasicSettings(BaseFileSettings):
     API_SERVER: dict = {"host": DEFAULT_BIND_HOST, "port": 7861, "public_host": "127.0.0.1", "public_port": 7861}
     """API 服务器地址。其中 public_host 用于生成云服务公网访问链接（如知识库文档链接）"""
 
-    WEBUI_SERVER: dict = {"host": DEFAULT_BIND_HOST, "port": 8501}
+    WEBUI_SERVER: dict = {"host": DEFAULT_BIND_HOST, "port": 8301}
     """WEBUI 服务器地址"""
 
     def make_dirs(self):
@@ -171,7 +176,7 @@ class KBSettings(BaseFileSettings):
     这样可以避免 PDF 中一些小图片的干扰，提高非扫描版 PDF 处理速度
     """
 
-    KB_INFO: t.Dict[str, str] = {"samples": "关于本项目issue的解答"} # TODO: 都存在数据库了，这个配置项还有必要吗？
+    KB_INFO: t.Dict[str, str] = {"samples": "FAQ for this project"} # TODO: 都存在数据库了，这个配置项还有必要吗？
     """每个知识库的初始化介绍，用于在初始化知识库时显示和Agent调用，没写则没有介绍，不会被Agent调用。"""
 
     kbs_config: t.Dict[str, t.Dict] = {
@@ -261,8 +266,15 @@ class PlatformConfig(MyBaseModel):
     platform_name: str = "xinference"
     """平台名称"""
 
-    platform_type: t.Literal["xinference", "ollama", "oneapi", "fastchat", "openai", "custom openai"] = "xinference"
-    """平台类型"""
+    platform_type: str = "xinference"
+    """平台类型。sentence_transformers 表示使用本地 sentence-transformers 模型，无需 api_base_url。"""
+
+    @field_validator("platform_type", mode="before")
+    @classmethod
+    def check_platform_type(cls, v: t.Any) -> str:
+        if v not in PLATFORM_TYPES:
+            raise ValueError(f"platform_type must be one of: {PLATFORM_TYPES}")
+        return str(v)
 
     api_base_url: str = "http://127.0.0.1:9997/v1"
     """openai api url"""
@@ -460,6 +472,26 @@ class ApiModelSettings(BaseFileSettings):
                     "text-embedding-3-large",
                 ],
             }),
+            # 本地 sentence_transformers：直接使用 HuggingFace/sentence-transformers 模型，无需启动外部服务。需安装 sentence-transformers
+            PlatformConfig(**{
+                "platform_name": "sentence_transformers",
+                "platform_type": "sentence_transformers",
+                "api_base_url": "http://127.0.0.1:9997/v1",  # 本类型忽略，仅占位
+                "api_key": "EMPTY",
+                "api_concurrencies": 3,
+                "llm_models": [],
+                "embed_models": [
+                    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                    "BAAI/bge-small-zh-v1.5",
+                    "BAAI/bge-base-zh-v1.5",
+                    "BAAI/bge-large-zh-v1.5",
+                ],
+                "text2image_models": [],
+                "image2text_models": [],
+                "rerank_models": [],
+                "speech2text_models": [],
+                "text2speech_models": [],
+            }),
         ]
     """模型平台配置"""
 
@@ -475,13 +507,12 @@ class ToolSettings(BaseFileSettings):
         "top_k": 3,
         "score_threshold": 2.0,
         "conclude_prompt": {
-            "with_result": '<指令>根据已知信息，简洁和专业的来回答问题。如果无法从中得到答案，请说 "根据已知信息无法回答该问题"，'
-            "不允许在答案中添加编造成分，答案请使用中文。 </指令>\n"
-            "<已知信息>{{ context }}</已知信息>\n"
-            "<问题>{{ question }}</问题>\n",
-            "without_result": "请你根据我的提问回答我的问题:\n"
+            "with_result": '<instruction>Answer concisely and professionally based on the given information. If the answer cannot be found, say "The question cannot be answered based on the given information." Do not add fabricated content. Use English for the answer.</instruction>\n'
+            "<known_information>{{ context }}</known_information>\n"
+            "<question>{{ question }}</question>\n",
+            "without_result": "Please answer my question based on my query:\n"
             "{{ question }}\n"
-            "请注意，你必须在回答结束后强调，你的回答是根据你的经验回答而不是参考资料回答的。\n",
+            "Note: You must emphasize at the end of your answer that your response is based on your experience rather than reference materials.\n",
         },
     }
     '''本地知识库工具配置项'''
@@ -510,11 +541,11 @@ class ToolSettings(BaseFileSettings):
         },
         "top_k": 5,
         "verbose": "Origin",
-        "conclude_prompt": "<指令>这是搜索到的互联网信息，请你根据这些信息进行提取并有调理，简洁的回答问题。如果无法从中得到答案，请说 “无法搜索到能回答问题的内容”。 "
-        "</指令>\n<已知信息>{{ context }}</已知信息>\n"
-        "<问题>\n"
+        "conclude_prompt": "<instruction>This is the internet search result. Please extract and summarize the information concisely to answer the question. If the answer cannot be found, say \"No content found that can answer the question.\"</instruction>\n"
+        "<known_information>{{ context }}</known_information>\n"
+        "<question>\n"
         "{{ question }}\n"
-        "</问题>\n",
+        "</question>\n",
     }
     '''搜索引擎工具配置项。推荐自己部署 searx 搜索引擎，国内使用最方便。'''
 
@@ -557,7 +588,7 @@ class ToolSettings(BaseFileSettings):
         # crate、duckdb、googlesql、mssql、mysql、mariadb、oracle、postgresql、sqlite、clickhouse、prestodb
         # 不同的数据库请查阅SQLAlchemy用法，修改sqlalchemy_connect_str，配置对应的数据库连接，如sqlite为sqlite:///数据库文件路径，下面示例为mysql
         # 如提示缺少对应数据库的驱动，请自行通过poetry安装
-        "sqlalchemy_connect_str": "mysql+pymysql://用户名:密码@主机地址/数据库名称",
+        "sqlalchemy_connect_str": "mysql+pymysql://user:password@host/database_name",
         # 务必评估是否需要开启read_only,开启后会对sql语句进行检查，请确认text2sql.py中的intercept_sql拦截器是否满足你使用的数据库只读要求
         # 优先推荐从数据库层面对用户权限进行限制
         "read_only": False,
@@ -569,9 +600,9 @@ class ToolSettings(BaseFileSettings):
         "table_names": [],
         # 对表名进行额外说明，辅助大模型更好的判断应该使用哪些表，尤其是SQLDatabaseSequentialChain模式下,是根据表名做的预测，很容易误判。
         "table_comments": {
-            # 如果出现大模型选错表的情况，可尝试根据实际情况填写表名和说明
-            # "tableA":"这是一个用户表，存储了用户的基本信息",
-            # "tableB":"角色表",
+            # If the model picks wrong tables, add table name and description, e.g.:
+            # "tableA": "User table storing basic user info",
+            # "tableB": "Role table",
         },
     }
     '''
@@ -586,7 +617,7 @@ class ToolSettings(BaseFileSettings):
   
     amap: dict = {
         "use": False,
-        "api_key": "高德地图 API KEY",
+        "api_key": "Amap API KEY",
     }
     '''高德地图、天气相关工具配置项。'''
 
@@ -624,12 +655,12 @@ class PromptSettings(BaseFileSettings):
 
     preprocess_model: dict = {
         "default": (
-            "你只要回复0 和 1 ，代表不需要使用工具。以下几种问题不需要使用工具:\n"
-            "1. 需要联网查询的内容\n"
-            "2. 需要计算的内容\n"
-            "3. 需要查询实时性的内容\n"
-            "如果我的输入满足这几种情况，返回1。其他输入，请你回复0，你只要返回一个数字\n"
-            "这是我的问题:"
+            "Reply with only 0 or 1. 1 means tool is not needed. Do not use tools for:\n"
+            "1. Content that requires online search\n"
+            "2. Content that requires calculation\n"
+            "3. Content that requires real-time information\n"
+            "If my input falls into the above, return 1. Otherwise return 0. Reply with a single digit only.\n"
+            "My question:"
             ),
     }
     """意图识别用模板"""
@@ -650,13 +681,14 @@ class PromptSettings(BaseFileSettings):
 
     rag: dict = {
         "default": (
-            "【指令】根据已知信息，简洁和专业的来回答问题。"
-            "如果无法从中得到答案，请说 “根据已知信息无法回答该问题”，不允许在答案中添加编造成分，答案请使用中文。\n\n"
-            "【已知信息】{{context}}\n\n"
-            "【问题】{{question}}\n"
+            "<instruction>Use the given information to answer the question. When the given information is relevant to the question (even if wording differs), infer and summarize to answer—exact match is not required. "
+            "Only say \"The question cannot be answered based on the given information\" when the given information is clearly irrelevant or contains nothing useful for the question. Do not fabricate. "
+            "Answer in the same language as the user's question.</instruction>\n\n"
+            "<known_information>{{context}}</known_information>\n\n"
+            "<question>{{question}}</question>\n"
             ),
         "empty": (
-            "请你回答我的问题:\n"
+            "Please answer my question:\n"
             "{{question}}"
         ),
     }
@@ -735,7 +767,7 @@ class PromptSettings(BaseFileSettings):
         },
         "platform-knowledge-mode": {
             "SYSTEM_PROMPT": (
-                "</think>You are ChatChat,  a content manager, you are familiar with how to find data from complex projects and better respond to users\n"
+                "</think>You are a helpful assistant. Follow the tool and thinking rules below.\n"
                 "\n"
                 "\n"
                 "CRITICAL: TOOL RULES: All tool usage MUST ` Tool Use Formatting` the specified structured format. \n"
