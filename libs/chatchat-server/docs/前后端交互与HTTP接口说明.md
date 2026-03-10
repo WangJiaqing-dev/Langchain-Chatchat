@@ -60,6 +60,21 @@
     **`POST /knowledge_base/search_engine/{搜索引擎名}/chat/completions`**
 - **请求体**：同上，OpenAI 风格；`extra_body` 可带 `top_k`、`score_threshold`、`prompt_name`、`return_direct` 等（与 `/chat/kb_chat` 参数一致）。
 
+**Chat Completions 请求体参数说明（必填 vs 可选）**  
+（适用于 `POST /chat/chat/completions`、`POST /knowledge_base/{mode}/{param}/chat/completions`、`POST /v1/chat/completions` 等使用 `OpenAIChatInput` 的接口）
+
+| 参数 | 是否必填 | 说明 |
+|------|----------|------|
+| **messages** | **必填** | 对话消息列表，至少一条；最后一条一般为用户问题，前面为历史。 |
+| model | 可选 | 模型名，不传则用配置中的默认 LLM。 |
+| stream | 可选 | 是否流式返回，不传由接口/前端约定。 |
+| temperature | 可选 | 采样温度，不传用配置默认值。 |
+| max_tokens | 可选 | 最大生成 token 数，不传用配置默认值。 |
+| tool_choice / tools | 可选 | Agent 或工具调用时使用。 |
+| frequency_penalty, presence_penalty, stop, n, logprobs, top_p, seed, response_format, logit_bias, top_logprobs | 可选 | OpenAI 兼容参数，一般不传。 |
+| **extra_body（或 extra_json）** | 可选 | 扩展参数：如 `top_k`、`score_threshold`、`prompt_name`、`conversation_id`、`chat_model_config`、`tool_input`、`use_mcp` 等，按需传入。 |
+| user, extra_headers, extra_query, timeout | 可选 | 透传/调试用。 |
+
 ### 3. 纯 LLM 对话（无 Agent）
 
 - **用途**：仅调用大模型，不走 Agent/工具。

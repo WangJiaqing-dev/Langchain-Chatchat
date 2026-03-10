@@ -27,8 +27,9 @@ from chatchat.server.knowledge_base.kb_summary_api import (
 )
 from chatchat.server.utils import BaseResponse, ListResponse
 from chatchat.server.knowledge_base.kb_cache.faiss_cache import memo_faiss_pool
+from chatchat.utils import build_logger
 
-
+logger = build_logger()
 kb_router = APIRouter(prefix="/knowledge_base", tags=["Knowledge Base Management"])
 
 
@@ -41,8 +42,12 @@ async def kb_chat_endpoint(
     body: OpenAIChatInput,
     request: Request,
 ):
-    # import rich
-    # rich.print(body)
+    # 打印接口实际收到的 POST 参数，便于调试
+    try:
+        payload = body.model_dump() if hasattr(body, "model_dump") else body.dict()
+        logger.warning(f"[POST /knowledge_base/{mode}/{param}/chat/completions] request params: {payload}")
+    except Exception as e:
+        logger.warning(f"log POST params failed: {e}")
 
     if body.max_tokens in [None, 0]:
         body.max_tokens = Settings.model_settings.MAX_TOKENS

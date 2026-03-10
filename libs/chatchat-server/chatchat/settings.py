@@ -140,7 +140,7 @@ class KBSettings(BaseFileSettings):
     DEFAULT_KNOWLEDGE_BASE: str = "samples"
     """默认使用的知识库"""
 
-    DEFAULT_VS_TYPE: t.Literal["faiss", "milvus", "zilliz", "pg", "es", "relyt", "chromadb"] = "faiss"
+    DEFAULT_VS_TYPE: t.Literal["faiss", "milvus", "zilliz", "pg", "es", "relyt", "chromadb"] = "chromadb"
     """默认向量库/全文检索引擎类型"""
 
     CACHED_VS_NUM: int = 1
@@ -507,10 +507,10 @@ class ToolSettings(BaseFileSettings):
         "top_k": 3,
         "score_threshold": 2.0,
         "conclude_prompt": {
-            "with_result": '<instruction>Answer concisely and professionally based on the given information. If the answer cannot be found, say "The question cannot be answered based on the given information." Do not add fabricated content. Use English for the answer.</instruction>\n'
+            "with_result": '<instruction>CRITICAL: Always respond in English only. Answer concisely and professionally based on the given information. If the answer cannot be found, say "The question cannot be answered based on the given information." Do not add fabricated content.</instruction>\n'
             "<known_information>{{ context }}</known_information>\n"
             "<question>{{ question }}</question>\n",
-            "without_result": "Please answer my question based on my query:\n"
+            "without_result": "CRITICAL: Always respond in English only.\n\nPlease answer my question based on my query:\n"
             "{{ question }}\n"
             "Note: You must emphasize at the end of your answer that your response is based on your experience rather than reference materials.\n",
         },
@@ -541,7 +541,7 @@ class ToolSettings(BaseFileSettings):
         },
         "top_k": 5,
         "verbose": "Origin",
-        "conclude_prompt": "<instruction>This is the internet search result. Please extract and summarize the information concisely to answer the question. If the answer cannot be found, say \"No content found that can answer the question.\"</instruction>\n"
+        "conclude_prompt": "<instruction>CRITICAL: Always respond in English only. This is the internet search result. Please extract and summarize the information concisely to answer the question. If the answer cannot be found, say \"No content found that can answer the question.\"</instruction>\n"
         "<known_information>{{ context }}</known_information>\n"
         "<question>\n"
         "{{ question }}\n"
@@ -670,6 +670,7 @@ class PromptSettings(BaseFileSettings):
         "with_history": (
             "The following is a friendly conversation between a human and an AI.\n"
             "The AI is talkative and provides lots of specific details from its context.\n"
+            "The AI always responds in English only, regardless of the human's language.\n"
             "If the AI does not know the answer to a question, it truthfully says it does not know.\n\n"
             "Current conversation:\n"
             "{{history}}\n"
@@ -681,13 +682,14 @@ class PromptSettings(BaseFileSettings):
 
     rag: dict = {
         "default": (
-            "<instruction>Use the given information to answer the question. When the given information is relevant to the question (even if wording differs), infer and summarize to answer—exact match is not required. "
-            "Only say \"The question cannot be answered based on the given information\" when the given information is clearly irrelevant or contains nothing useful for the question. Do not fabricate. "
-            "Answer in the same language as the user's question.</instruction>\n\n"
+            "<instruction>CRITICAL: You MUST always respond in English only, regardless of the language of the user's question or the given information. Do not use Chinese or any other language in your reply.\n\n"
+            "Use the given information to answer the question. When the given information is relevant (even if wording differs), infer and summarize to answer—exact match is not required. "
+            "Only say \"The question cannot be answered based on the given information\" when the given information is clearly irrelevant or contains nothing useful. Do not fabricate.</instruction>\n\n"
             "<known_information>{{context}}</known_information>\n\n"
             "<question>{{question}}</question>\n"
             ),
         "empty": (
+            "CRITICAL: You MUST always respond in English only, regardless of the language of the user's question.\n\n"
             "Please answer my question:\n"
             "{{question}}"
         ),
@@ -697,12 +699,12 @@ class PromptSettings(BaseFileSettings):
     action_model: dict = {
         "default": {
             "SYSTEM_PROMPT": (
-                "You are a helpful assistant"
+                "You are a helpful assistant. Always respond in English only."
             ),
         },
         "openai-functions": {
             "SYSTEM_PROMPT": (
-                "You are a helpful assistant"
+                "You are a helpful assistant. Always respond in English only."
             ),
             "HUMAN_MESSAGE": (
                 "{input}"
