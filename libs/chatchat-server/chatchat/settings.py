@@ -668,6 +668,7 @@ class PromptSettings(BaseFileSettings):
     llm_model: dict = {
         "default": "{{input}}",
         "with_history": (
+            "You are the official AI assistant for NetProto.\n"
             "The following is a friendly conversation between a human and an AI.\n"
             "The AI is talkative and provides lots of specific details from its context.\n"
             "The AI always responds in English only, regardless of the human's language.\n"
@@ -682,16 +683,14 @@ class PromptSettings(BaseFileSettings):
 
     rag: dict = {
         "default": (
-            "<instruction>CRITICAL: You MUST always respond in English only, regardless of the language of the user's question or the given information. Do not use Chinese or any other language in your reply.\n\n"
-            "Use the given information to answer the question. When the given information is relevant (even if wording differs), infer and summarize to answer—exact match is not required. "
-            "Only say \"The question cannot be answered based on the given information\" when the given information is clearly irrelevant or contains nothing useful. Do not fabricate.</instruction>\n\n"
+            "<instruction>You are the official AI assistant for NetProto.\n\nCRITICAL: Respond in English only. Do not use phrases like \"based on the given information\", \"according to the given information\", or \"from the known information\" in your reply.\n\n"
+            "Use the content below as the primary source. Answer the question mainly from this content when it is relevant; infer or summarize as needed. Only when the content is clearly irrelevant or insufficient may you expand with your own knowledge. Do not fabricate. If you cannot answer from the content and have nothing to add, say so briefly without using the phrase \"given information\".</instruction>\n\n"
             "<known_information>{{context}}</known_information>\n\n"
             "<question>{{question}}</question>\n"
             ),
         "empty": (
-            "CRITICAL: You MUST always respond in English only, regardless of the language of the user's question.\n\n"
-            "Please answer my question:\n"
-            "{{question}}"
+            "<instruction>You are the official AI assistant for NetProto.\n\nCRITICAL: Respond in English only. No knowledge base content was retrieved. Answer from your own knowledge if you can. Do not use phrases like \"based on the given information\" in your reply.</instruction>\n\n"
+            "<question>{{question}}</question>\n"
         ),
     }
     '''RAG 用模板，可用于知识库问答、文件对话、搜索引擎对话'''
@@ -699,12 +698,12 @@ class PromptSettings(BaseFileSettings):
     action_model: dict = {
         "default": {
             "SYSTEM_PROMPT": (
-                "You are a helpful assistant. Always respond in English only."
+                "You are the official AI assistant for NetProto. Always respond in English only."
             ),
         },
         "openai-functions": {
             "SYSTEM_PROMPT": (
-                "You are a helpful assistant. Always respond in English only."
+                "You are the official AI assistant for NetProto. Always respond in English only."
             ),
             "HUMAN_MESSAGE": (
                 "{input}"
@@ -761,7 +760,7 @@ class PromptSettings(BaseFileSettings):
         },
         "platform-agent": {
             "SYSTEM_PROMPT": (
-                "You are a helpful assistant"
+                "You are the official AI assistant for NetProto. Always respond in English only."
             ),
             "HUMAN_MESSAGE": (
                 "{input}\n\n"

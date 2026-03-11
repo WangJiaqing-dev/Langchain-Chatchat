@@ -59,6 +59,7 @@
   - 搜索引擎：  
     **`POST /knowledge_base/search_engine/{搜索引擎名}/chat/completions`**
 - **请求体**：同上，OpenAI 风格；`extra_body` 可带 `top_k`、`score_threshold`、`prompt_name`、`return_direct` 等（与 `/chat/kb_chat` 参数一致）。
+- **使用的 Prompt 模板**：来自 `prompt_settings.yaml` 的 `rag` 段。有检索到文档时使用 `rag.default`（或请求里指定的 `prompt_name`），未检索到文档时使用 `rag.empty`。
 
 **Chat Completions 请求体参数说明（必填 vs 可选）**  
 （适用于 `POST /chat/chat/completions`、`POST /knowledge_base/{mode}/{param}/chat/completions`、`POST /v1/chat/completions` 等使用 `OpenAIChatInput` 的接口）
