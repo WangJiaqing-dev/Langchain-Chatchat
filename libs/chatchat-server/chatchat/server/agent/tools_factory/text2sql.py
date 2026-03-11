@@ -1,3 +1,5 @@
+import re
+
 from langchain.chains import LLMChain
 from langchain_community.utilities import SQLDatabase
 from langchain_core.prompts.prompt import PromptTemplate
@@ -13,6 +15,43 @@ from .tools_registry import regist_tool
 from langchain_chatchat.agent_toolkits.all_tools.tool import (
     BaseToolOutput,
 )
+
+
+def _strip_sql_markdown(command: str) -> str:
+    """去掉 LLM 可能返回的 Markdown 代码块标记（```sql ... ```），避免整段发给数据库导致语法错误。"""
+    if not command or not isinstance(command, str):
+        return command
+    s = command.strip()
+    # 去掉开头的 ```sql 或 ```
+    s = re.sub(r"^```\s*sql\s*\n?", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"^```\s*\n?", "", s)
+    # 去掉结尾的 ```
+    s = re.sub(r"\n?```\s*$", "", s)
+    return s.strip()
+
+
+class _CleanSQLDatabase(SQLDatabase):
+    """在执行前去掉 SQL 字符串中的 Markdown 代码块标记，避免 LLM 返回 ```sql ... ``` 导致 MySQL 语法错误。"""
+
+    def run(
+        self,
+        command,
+        fetch="all",
+        include_columns=False,
+        *,
+        parameters=None,
+        execution_options=None,
+    ):
+        if isinstance(command, str):
+            command = _strip_sql_markdown(command)
+        return super().run(
+            command,
+            fetch=fetch,
+            include_columns=include_columns,
+            parameters=parameters,
+            execution_options=execution_options,
+        )
+
 
 READ_ONLY_PROMPT_TEMPLATE = """You are a MySQL expert. The database is currently in read-only mode. 
 Given an input question, determine if the related SQL can be executed in read-only mode.
@@ -54,7 +93,7 @@ def query_database(query: str, config: dict):
     return_intermediate_steps = config["return_intermediate_steps"]
     sqlalchemy_connect_str = config["sqlalchemy_connect_str"]
     read_only = config["read_only"]
-    db = SQLDatabase.from_uri(sqlalchemy_connect_str)
+    db = _CleanSQLDatabase.from_uri(sqlalchemy_connect_str)
 
     from chatchat.server.utils import get_ChatOpenAI
 
@@ -136,9 +175,9 @@ def query_database(query: str, config: dict):
 @regist_tool(title="数据库对话")
 def text2sql(
     query: str = Field(
-        description="No need for SQL statements,just input the natural language that you want to chat with database"
+        description="Natural language question about data in the database, e.g. quote date, order number, any business data. No SQL needed."
     ),
 ):
-    """Use this tool to chat with  database,Input natural language, then it will convert it into SQL and execute it in the database, then return the execution result."""
+    """Use this tool when the user asks about quote numbers (报价单号), quote dates (报价日期), orders, or any data that might be stored in the database. Input natural language; it will be converted to SQL and executed. Always prefer querying the database for authoritative results instead of inferring from patterns or encoding rules."""
     tool_config = get_tool_config("text2sql")
     return BaseToolOutput(query_database(query=query, config=tool_config))

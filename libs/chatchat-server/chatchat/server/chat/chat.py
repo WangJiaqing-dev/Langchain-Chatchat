@@ -3,7 +3,7 @@ import json
 import uuid
 import os
 from chatchat.server.db.repository.message_repository import filter_message
-from typing import AsyncIterable, List, Union, Tuple
+from typing import AsyncIterable, List, Union, Tuple, Optional
 from langchain_core.load import dumpd, dumps, load, loads
 
 from fastapi import Body
@@ -142,11 +142,56 @@ async def chat(
         tool_config: dict = Body({}, description="工具配置", examples=[]),
         use_mcp: bool = Body(False, description="使用MCP"),
         max_tokens: int = Body(None, description="LLM最大token数配置", example=4096),
+        tool_choice: Optional[str] = Body(None, description="指定时直接调用该工具，不走 Agent"),
+        tool_input: Optional[dict] = Body(None, description="直接调用工具时的入参，缺省时用 query 作为 query 参数"),
 ):
-    """Agent 对话"""
+    """Agent 对话；当 tool_choice 指定时直接调用该工具并返回结果，不经过 Agent 推理。"""
 
-    async def chat_iterator_event() -> AsyncIterable[OpenAIChatOutput]:
+    # 用默认参数在定义时捕获外层 message_id，避免函数内 message_id = add_message_to_db 导致 message_id 成局部变量引发 UnboundLocalError
+    async def chat_iterator_event(_outer_message_id=message_id) -> AsyncIterable[OpenAIChatOutput]:
         try:
+            # 指定 tool_choice 时直接调用该工具，跳过 Agent
+            if tool_choice and tool_config and tool_choice in tool_config:
+                tool = get_tool(tool_choice)
+                if tool:
+                    if isinstance(tool_input, dict) and tool_input:
+                        inp = tool_input
+                    else:
+                        # 根据工具 schema 用用户输入填第一个参数（如 calculate 用 text，text2sql 用 query）
+                        schema = getattr(tool, "args_schema", None)
+                        if schema and getattr(schema, "__fields__", None):
+                            first_key = next(iter(schema.__fields__.keys()), "query")
+                        else:
+                            first_key = "query"
+                        inp = {first_key: query}
+                    try:
+                        result = await tool.ainvoke(inp)
+                        output_str = str(result) if result is not None else ""
+                    except Exception as e:
+                        logger.exception(f"forced tool {tool_choice} failed: {e}")
+                        output_str = f"工具执行失败: {e}"
+                    if _outer_message_id:
+                        update_message(
+                            _outer_message_id,
+                            output_str,
+                            metadata={"forced_tool": tool_choice},
+                        )
+                    model_name = (chat_model_config.get("action_model") or {}).get("model") or "tool"
+                    ret = OpenAIChatOutput(
+                        id=f"chat{uuid.uuid4()}",
+                        object="chat.completion.chunk",
+                        content=output_str,
+                        role="assistant",
+                        tool_calls=[],
+                        model=model_name,
+                        status=AgentStatus.agent_finish,
+                        message_type=MsgType.TEXT,
+                        message_id=_outer_message_id,
+                        class_name="PlatformToolsFinish",
+                    )
+                    yield ret.model_dump_json()
+                    return
+
             callbacks = []
 
             # Enable langchain-chatchat to support langfuse
@@ -219,10 +264,12 @@ async def chat(
                     data["tool_calls"].append(last_tool)
 
                     try:
-                        tool_output = json.loads(item.return_values["output"])
-                        if message_type := tool_output.get("message_type"):
-                            data["message_type"] = message_type
-                    except:
+                        out = item.return_values.get("output")
+                        if out is not None and isinstance(out, (str, bytes, bytearray)):
+                            tool_output = json.loads(out)
+                            if message_type := tool_output.get("message_type"):
+                                data["message_type"] = message_type
+                    except (TypeError, ValueError):
                         ...
 
                 elif isinstance(item, PlatformToolsActionToolStart):
@@ -251,10 +298,12 @@ async def chat(
 
                     last_tool = {}
                     try:
-                        tool_output = json.loads(item.tool_output)
-                        if message_type := tool_output.get("message_type"):
-                            data["message_type"] = message_type
-                    except:
+                        out = getattr(item, "tool_output", None)
+                        if out is not None and isinstance(out, (str, bytes, bytearray)):
+                            tool_output = json.loads(out)
+                            if message_type := tool_output.get("message_type"):
+                                data["message_type"] = message_type
+                    except (TypeError, ValueError):
                         ...
                 elif isinstance(item, PlatformToolsLLMStatus):
 
@@ -289,7 +338,13 @@ async def chat(
             return
         except Exception as e:
             logger.error(f"error in chat: {e}")
-            yield {"data": json.dumps({"error": str(e)})}
+            err_chunk = json.dumps({
+                "choices": [{"delta": {"content": str(e), "tool_calls": []}}],
+                "model": "",
+                "created": 0,
+                "status": AgentStatus.agent_finish,
+            })
+            yield err_chunk
             return
 
     if stream:
@@ -308,12 +363,19 @@ async def chat(
         )
 
         async for chunk in chat_iterator_event():
-            data = json.loads(chunk)
-            if text := data["choices"][0]["delta"]["content"]:
+            if chunk is None or not isinstance(chunk, (str, bytes, bytearray)):
+                continue
+            try:
+                data = json.loads(chunk)
+            except (TypeError, ValueError):
+                continue
+            if text := data.get("choices", [{}])[0].get("delta", {}).get("content"):
                 ret.content += text
-            if data["status"] == AgentStatus.tool_end:
-                ret.tool_calls += data["choices"][0]["delta"]["tool_calls"]
-            ret.model = data["model"]
-            ret.created = data["created"]
+            if data.get("status") == AgentStatus.tool_end:
+                ret.tool_calls += data.get("choices", [{}])[0].get("delta", {}).get("tool_calls") or []
+            if "model" in data:
+                ret.model = data["model"]
+            if "created" in data:
+                ret.created = data["created"]
 
         return ret.model_dump()

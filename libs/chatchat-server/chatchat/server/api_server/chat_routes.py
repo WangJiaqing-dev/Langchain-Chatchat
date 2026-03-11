@@ -51,10 +51,8 @@ async def chat_completions(
     请求参数与 openai.chat.completions.create 一致，可以通过 extra_body 传入额外参数
     tools 和 tool_choice 可以直接传工具名称，会根据项目里包含的 tools 进行转换
     通过不同的参数组合调用不同的 chat 功能：
-    - tool_choice
-        - extra_body 中包含 tool_input: 直接调用 tool_choice(tool_input)
-        - extra_body 中不包含 tool_input: 通过 agent 调用 tool_choice
-    - tools: agent 对话
+    - tool_choice 指定时：直接调用该工具（入参为 extra_body.tool_input，缺省则为 {"query": 用户最后一条消息}），不经过 Agent
+    - 仅 tools、无 tool_choice：agent 对话
     - 其它：LLM 对话
     以后还要考虑其它的组合（如文件对话）
     返回与 openai 兼容的 Dict
@@ -79,6 +77,13 @@ async def chat_completions(
     if isinstance(body.tool_choice, str):
         if t := get_tool(body.tool_choice):
             body.tool_choice = {"function": {"name": t.name}, "type": "function"}
+    forced_tool_name = None
+    if body.tool_choice:
+        if isinstance(body.tool_choice, dict):
+            forced_tool_name = (body.tool_choice.get("function") or {}).get("name")
+        elif isinstance(body.tool_choice, str):
+            forced_tool_name = body.tool_choice
+    tool_input_extra = extra.get("tool_input")
     if isinstance(body.tools, list):
         for i in range(len(body.tools)):
             if isinstance(body.tools[i], str):
@@ -125,5 +130,7 @@ async def chat_completions(
         tool_config=tool_config,
         use_mcp=extra.get("use_mcp", False),
         max_tokens=body.max_tokens,
+        tool_choice=forced_tool_name,
+        tool_input=tool_input_extra,
     )
     return result

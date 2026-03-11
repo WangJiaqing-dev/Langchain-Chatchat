@@ -282,7 +282,12 @@ class PlatformToolsRunnable(RunnableSerializable[Dict, OutputType]):
             )
 
             async for chunk in self.callback.aiter():
-                data = json.loads(chunk)
+                if chunk is None or not isinstance(chunk, (str, bytes, bytearray)):
+                    continue
+                try:
+                    data = json.loads(chunk)
+                except (TypeError, ValueError):
+                    continue
                 class_status = None
                 if data["status"] == AgentStatus.llm_start:
                     class_status = PlatformToolsLLMStatus(
