@@ -205,7 +205,8 @@ def agents_registry(
                                                 tools=tools,
                                                 mcp_tools=mcp_tools,
                                                 llm_with_platform_tools=llm_with_platform_tools,
-                                                prompt=prompt)
+                                                prompt=prompt,
+                                                extra_system_instruction=kwargs.get("extra_system_instruction", ""))
 
         agent_executor = PlatformToolsAgentExecutor(
             agent=agent,

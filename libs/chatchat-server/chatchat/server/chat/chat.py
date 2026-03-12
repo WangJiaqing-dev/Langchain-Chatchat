@@ -74,7 +74,8 @@ def create_models_from_config(configs, callbacks, stream, max_tokens):
 
 
 def create_models_chains(
-    history_len, prompts, models, tools, callbacks, conversation_id, metadata,  use_mcp: bool = False
+    history_len, prompts, models, tools, callbacks, conversation_id, metadata,  use_mcp: bool = False,
+    extra_system_prompt: str = "",
 ):
 
     # 从数据库获取conversation_id对应的 intermediate_steps 、 mcp_connections
@@ -123,7 +124,8 @@ def create_models_chains(
         tools=tools,
         history=history,
         intermediate_steps=intermediate_steps,
-        mcp_connections=mcp_connections if use_mcp else {}
+        mcp_connections=mcp_connections if use_mcp else {},
+        extra_system_instruction=extra_system_prompt or "",
     )
 
     full_chain = {"chat_input": lambda x: x["input"]} | agent_executor
@@ -144,6 +146,7 @@ async def chat(
         max_tokens: int = Body(None, description="LLM最大token数配置", example=4096),
         tool_choice: Optional[str] = Body(None, description="指定时直接调用该工具，不走 Agent"),
         tool_input: Optional[dict] = Body(None, description="直接调用工具时的入参，缺省时用 query 作为 query 参数"),
+        extra_system_prompt: Optional[str] = Body(None, description="追加到 Agent 系统提示前的自定义说明，用于灵活控制角色与规则"),
 ):
     """Agent 对话；当 tool_choice 指定时直接调用该工具并返回结果，不经过 Agent 推理。"""
 
@@ -221,7 +224,8 @@ async def chat(
                 callbacks=callbacks,
                 history_len=history_len,
                 metadata=metadata,
-                use_mcp = use_mcp
+                use_mcp=use_mcp,
+                extra_system_prompt=extra_system_prompt or "",
             )
             message_id = add_message_to_db(
                     chat_type="llm_chat",

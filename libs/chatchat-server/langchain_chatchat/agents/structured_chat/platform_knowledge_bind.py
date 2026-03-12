@@ -96,6 +96,7 @@ def create_platform_knowledge_agent(
         prompt: ChatPromptTemplate,
         *,
         llm_with_platform_tools: List[Dict[str, Any]] = [],
+        extra_system_instruction: str = "",
 ) -> Runnable:
     """Create an agent that uses tools.
 
@@ -117,6 +118,7 @@ def create_platform_knowledge_agent(
         tools=render_knowledge_tools(list(tools)),
         datetime=datetime.now().isoformat(),
         mcp_tools=render_knowledge_mcp_tools(list(mcp_tools)),
+        extra_system_instruction=extra_system_instruction or "",
     ) 
     
     agent = (

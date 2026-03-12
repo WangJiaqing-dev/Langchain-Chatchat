@@ -768,6 +768,7 @@ class PromptSettings(BaseFileSettings):
         },
         "platform-knowledge-mode": {
             "SYSTEM_PROMPT": (
+                "{extra_system_instruction}\n\n"
                 "</think>You are a helpful assistant. Follow the tool and thinking rules below.\n"
                 "\n"
                 "\n"

@@ -1,5 +1,5 @@
 """
-通过外部 API 根据报价单号查询报价/工装价格信息。
+Query quote / tooling price by quote number via external API.
 """
 import requests
 
@@ -13,13 +13,13 @@ from langchain_chatchat.agent_toolkits.all_tools.tool import (
 )
 
 
-@regist_tool(title="报价信息查询")
+@regist_tool(title="Quote info query")
 def get_quote_info(
     quotenum: str = Field(
-        description="Quote number, e.g. U-250310-001. 报价单号。"
+        description="Quote number provided by the user. Supports multiple formats (e.g. U-250310-001, C-140829063653). Pass the value as-is; do not refuse to call based on format; let the API return the result or error."
     ),
 ):
-    """Use this tool when the user asks for quote info, tooling price, or data by quote number (报价单号). Fetches from the getToolingPriceByQuotenum API."""
+    """Call this tool when the user asks for quote info, price, cost, lead time, etc. for a quote. Quote numbers may be in various formats (U-*, C-*, etc.); pass the user's value as-is and do not refuse based on format; whether it is queryable is determined by the API response."""
 
     config = get_tool_config("get_quote_info")
     base_url = (config.get("base_url") or "http://127.0.0.1:8000").rstrip("/")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Dict, List
+import json
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, Request
 from langchain.prompts.prompt import PromptTemplate
@@ -12,6 +13,8 @@ from chatchat.server.chat.kb_chat import kb_chat
 from chatchat.server.chat.feedback import chat_feedback
 from chatchat.server.chat.file_chat import file_chat
 from chatchat.server.db.repository import add_message_to_db
+from langchain_core.utils.function_calling import convert_to_openai_tool
+
 from chatchat.server.utils import (
     get_OpenAIClient,
     get_prompt_template,
@@ -24,6 +27,54 @@ from .openai_routes import openai_request, OpenAIChatOutput
 
 
 logger = build_logger()
+
+
+def _message_to_dict(msg: Any) -> Dict:
+    """将 API 返回的 message 对象转为请求体所需的 dict（含 tool_calls）。"""
+    d = msg.model_dump() if hasattr(msg, "model_dump") else dict(msg)
+    if not d.get("tool_calls"):
+        return d
+    out_tc = []
+    for t in d["tool_calls"]:
+        if isinstance(t, dict):
+            fn = t.get("function") or {}
+            out_tc.append({
+                "id": t.get("id", ""),
+                "type": t.get("type", "function"),
+                "function": {"name": fn.get("name", ""), "arguments": fn.get("arguments", "{}")},
+            })
+        else:
+            fn = getattr(t, "function", None)
+            out_tc.append({
+                "id": getattr(t, "id", "") or "",
+                "type": getattr(t, "type", None) or "function",
+                "function": {
+                    "name": getattr(fn, "name", "") or (fn.get("name") if isinstance(fn, dict) else ""),
+                    "arguments": getattr(fn, "arguments", "{}") or (fn.get("arguments") if isinstance(fn, dict) else "{}"),
+                },
+            })
+    d["tool_calls"] = out_tc
+    return d
+
+
+async def _run_tool_and_to_content(name: str, args: Dict) -> str:
+    """执行工具并将返回值转为给模型看的字符串。"""
+    tool = get_tool(name)
+    if not tool:
+        return json.dumps({"error": f"unknown tool: {name}"}, ensure_ascii=False)
+    try:
+        result = await tool.ainvoke(args)
+    except Exception as e:
+        logger.exception(e)
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+    if hasattr(result, "data"):
+        data = result.data
+    else:
+        data = result
+    if isinstance(data, (dict, list)):
+        return json.dumps(data, ensure_ascii=False)
+    return str(data)
+
 
 chat_router = APIRouter(prefix="/chat", tags=["ChatChat 对话"])
 
@@ -119,7 +170,114 @@ async def chat_completions(
         tool_names = [x["function"]["name"] for x in body.tools]
         tool_config = {name: get_tool_config(name) for name in tool_names}
 
-    result = await chat(
+    return await _do_chat_completions(
+        body, extra, forced_tool_name, tool_input_extra, tool_config, chat_model_config, message_id,
+        extra_system_prompt="",
+    )
+
+
+@chat_router.post("/chat/openai/completions", summary="直接转发 OpenAI 格式 chat completions")
+async def chat_openai_completions(
+    request: Request,
+    body: OpenAIChatInput,
+) -> Dict:
+    """
+    请求体与 OpenAI Chat Completions API 一致，直接转发到配置的模型平台，不做 Agent/工具封装。
+    支持 stream 与 非 stream，tools / tool_choice 由上游模型原生处理。
+    """
+    try:
+        payload = body.model_dump() if hasattr(body, "model_dump") else body.dict()
+        logger.info(f"[POST /chat/chat/openai/completions] request params: {payload}")
+    except Exception as e:
+        logger.warning(f"log POST params failed: {e}")
+
+    params = body.model_dump(exclude_unset=True)
+    if params.get("max_tokens") in [None, 0]:
+        params["max_tokens"] = Settings.model_settings.MAX_TOKENS
+
+    # 将 tools 中的工具名（字符串）转为上游 API 要求的 ChatCompletionTool 结构（含完整 JSON Schema）
+    if isinstance(params.get("tools"), list):
+        for i in range(len(params["tools"])):
+            if isinstance(params["tools"][i], str):
+                if t := get_tool(params["tools"][i]):
+                    params["tools"][i] = convert_to_openai_tool(t)
+    # tool_choice 若为字符串（工具名），转为完整 function 结构（name + description + parameters）
+    if isinstance(params.get("tool_choice"), str) and params["tool_choice"] not in ("auto", "none"):
+        if t := get_tool(params["tool_choice"]):
+            full_tool = convert_to_openai_tool(t)
+            params["tool_choice"] = {"type": "function", "function": full_tool["function"]}
+
+    client = get_OpenAIClient(model_name=body.model, is_async=True)
+
+    if body.stream:
+        logger.info("提交给大模型的参数: %s", json.dumps(params, ensure_ascii=False, default=str))
+        async def gen():
+            try:
+                stream = await client.chat.completions.create(**params)
+                async for chunk in stream:
+                    yield f"data: {chunk.model_dump_json()}\n\n"
+                yield "data: [DONE]\n\n"
+            except Exception as e:
+                logger.exception(e)
+                yield f"data: {{\"error\": \"{str(e)}\"}}\n\n"
+
+        return EventSourceResponse(gen(), media_type="text/event-stream")
+    else:
+        # 非流式：若模型返回 tool_calls 则在服务端执行工具并继续请求，直到得到最终回复；最终统一返回 {data: content}
+        max_tool_rounds = 10
+        result = None
+        for round_no in range(max_tool_rounds):
+            logger.info("提交给大模型的参数(第%d轮): %s", round_no + 1, json.dumps(params, ensure_ascii=False, default=str))
+            result = await client.chat.completions.create(**params)
+            try:
+                result_dump = result.model_dump() if hasattr(result, "model_dump") else str(result)
+                logger.info("大模型返回(第%d轮): %s", round_no + 1, json.dumps(result_dump, ensure_ascii=False, default=str))
+            except Exception as e:
+                logger.warning("大模型返回序列化失败: %s", e)
+            choice = result.choices[0] if result.choices else None
+            if not choice:
+                return {"data": ""}
+            msg = choice.message
+            tool_calls = getattr(msg, "tool_calls", None) or []
+            # 无需调用工具（直接文本回复）或已结束：提取 content 返回 {data: content}
+            if choice.finish_reason == "stop" or not tool_calls:
+                content = getattr(msg, "content", None) or ""
+                return {"data": content if isinstance(content, str) else str(content)}
+            # 需要调用工具：执行后继续请求
+            messages = list(params.get("messages", []))
+            messages.append(_message_to_dict(msg))
+            for tc in tool_calls:
+                tc_id = getattr(tc, "id", None) or ""
+                fn = getattr(tc, "function", tc) if hasattr(tc, "function") else tc
+                name = getattr(fn, "name", None) or (fn.get("name") if isinstance(fn, dict) else None)
+                args_raw = getattr(fn, "arguments", None) or (fn.get("arguments") if isinstance(fn, dict) else "") or "{}"
+                try:
+                    args = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw or {})
+                except json.JSONDecodeError:
+                    args = {}
+                content = await _run_tool_and_to_content(name, args)
+                messages.append({"role": "tool", "tool_call_id": tc_id, "content": content})
+            params["messages"] = messages
+        # 达到最大轮次仍未 stop：按最后一条消息的 content 返回
+        if result and result.choices:
+            msg = result.choices[0].message
+            content = getattr(msg, "content", None) or ""
+            return {"data": content if isinstance(content, str) else str(content)}
+        return {"data": ""}
+
+
+async def _do_chat_completions(
+    body: OpenAIChatInput,
+    extra: dict,
+    forced_tool_name,
+    tool_input_extra,
+    tool_config: dict,
+    chat_model_config: dict,
+    message_id,
+    extra_system_prompt: str = "",
+):
+    """chat/completions 与 chat/openai/completions 共用逻辑。"""
+    return await chat(
         query=body.messages[-1]["content"],
         metadata=extra.get("metadata", {}),
         conversation_id=extra.get("conversation_id", ""),
@@ -132,5 +290,5 @@ async def chat_completions(
         max_tokens=body.max_tokens,
         tool_choice=forced_tool_name,
         tool_input=tool_input_extra,
+        extra_system_prompt=extra_system_prompt or "",
     )
-    return result
