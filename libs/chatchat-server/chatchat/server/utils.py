@@ -209,13 +209,20 @@ def get_default_llm():
 
 
 def get_default_embedding():
+    default_name = Settings.model_settings.DEFAULT_EMBEDDING_MODEL
     available_embeddings = list(get_config_models(model_type="embed").keys())
-    if Settings.model_settings.DEFAULT_EMBEDDING_MODEL in available_embeddings:
-        return Settings.model_settings.DEFAULT_EMBEDDING_MODEL
-    else:
-        logger.warning(f"default embedding model {Settings.model_settings.DEFAULT_EMBEDDING_MODEL} is not found in "
-                       f"available embeddings, using {available_embeddings[0]} instead")
-        return available_embeddings[0]
+    if default_name in available_embeddings:
+        return default_name
+    # 配置可能是短名称（如 bge-small-zh-v1.5），可用列表为带前缀全名（如 BAAI/bge-small-zh-v1.5）
+    fallback = [m for m in available_embeddings if m == default_name or m.endswith("/" + default_name)]
+    if len(fallback) == 1:
+        logger.info(f"default embedding '{default_name}' resolved to {fallback[0]} (configure with full name to avoid resolution)")
+        return fallback[0]
+    if len(fallback) > 1:
+        logger.info(f"default embedding '{default_name}' matched multiple; using {fallback[0]}")
+        return fallback[0]
+    logger.warning(f"default embedding model {default_name} is not found in available embeddings, using {available_embeddings[0]} instead")
+    return available_embeddings[0]
 
 
 def get_history_len() -> int:

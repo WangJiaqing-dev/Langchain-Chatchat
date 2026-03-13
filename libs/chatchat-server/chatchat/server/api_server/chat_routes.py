@@ -58,7 +58,7 @@ def _message_to_dict(msg: Any) -> Dict:
 
 
 async def _run_tool_and_to_content(name: str, args: Dict) -> str:
-    """执行工具并将返回值转为给模型看的字符串。"""
+    """执行工具并将返回值转为给模型看的字符串。兼容 BaseToolOutput 校验异常及 format 非 str 等情况。"""
     tool = get_tool(name)
     if not tool:
         return json.dumps({"error": f"unknown tool: {name}"}, ensure_ascii=False)
@@ -67,13 +67,17 @@ async def _run_tool_and_to_content(name: str, args: Dict) -> str:
     except Exception as e:
         logger.exception(e)
         return json.dumps({"error": str(e)}, ensure_ascii=False)
-    if hasattr(result, "data"):
-        data = result.data
-    else:
-        data = result
-    if isinstance(data, (dict, list)):
-        return json.dumps(data, ensure_ascii=False)
-    return str(data)
+    try:
+        if hasattr(result, "data"):
+            data = result.data
+        else:
+            data = result
+        if isinstance(data, (dict, list)):
+            return json.dumps(data, ensure_ascii=False)
+        return str(data)
+    except Exception as e:
+        logger.warning("工具返回值解析失败，改用 str(result): %s", e)
+        return str(result) if result is not None else json.dumps({"error": str(e)}, ensure_ascii=False)
 
 
 chat_router = APIRouter(prefix="/chat", tags=["ChatChat 对话"])
@@ -210,7 +214,7 @@ async def chat_openai_completions(
     client = get_OpenAIClient(model_name=body.model, is_async=True)
 
     if body.stream:
-        logger.info("提交给大模型的参数: %s", json.dumps(params, ensure_ascii=False, default=str))
+        logger.info("提交给大模型的参数: %s" % (json.dumps(params, ensure_ascii=False, default=str),))
         async def gen():
             try:
                 stream = await client.chat.completions.create(**params)
@@ -227,11 +231,11 @@ async def chat_openai_completions(
         max_tool_rounds = 10
         result = None
         for round_no in range(max_tool_rounds):
-            logger.info("提交给大模型的参数(第%d轮): %s", round_no + 1, json.dumps(params, ensure_ascii=False, default=str))
+            logger.info("提交给大模型的参数(第%d轮): %s" % (round_no + 1, json.dumps(params, ensure_ascii=False, default=str)))
             result = await client.chat.completions.create(**params)
             try:
                 result_dump = result.model_dump() if hasattr(result, "model_dump") else str(result)
-                logger.info("大模型返回(第%d轮): %s", round_no + 1, json.dumps(result_dump, ensure_ascii=False, default=str))
+                logger.info("大模型返回(第%d轮): %s" % (round_no + 1, json.dumps(result_dump, ensure_ascii=False, default=str)))
             except Exception as e:
                 logger.warning("大模型返回序列化失败: %s", e)
             choice = result.choices[0] if result.choices else None

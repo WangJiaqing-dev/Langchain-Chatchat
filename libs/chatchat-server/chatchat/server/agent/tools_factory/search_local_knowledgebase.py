@@ -45,4 +45,11 @@ def search_local_knowledgebase(
     """"""
     tool_config = get_tool_config("search_local_knowledgebase")
     ret = search_knowledgebase(query=query, database=database, config=tool_config)
-    return BaseToolOutput(ret, format=format_context)
+    # 在工具内生成格式化字符串并放入 data，避免 BaseToolOutput(format=callable) 触发 str 类型校验
+    try:
+        dummy = type("_FormatDummy", (), {"data": ret})()
+        formatted = format_context(dummy)
+    except Exception:
+        formatted = str(ret.get("docs", []))
+    ret["formatted"] = formatted
+    return BaseToolOutput(ret)
