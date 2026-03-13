@@ -227,8 +227,8 @@ async def chat_openai_completions(
 
         return EventSourceResponse(gen(), media_type="text/event-stream")
     else:
-        # 非流式：若模型返回 tool_calls 则在服务端执行工具并继续请求，直到得到最终回复；最终统一返回 {data: content}
-        max_tool_rounds = 10
+        # 非流式：若模型返回 tool_calls 则在服务端执行工具并继续请求，直到得到最终回复；返回 OpenAI 兼容的 chat completion 结构
+        max_tool_rounds = 2
         result = None
         for round_no in range(max_tool_rounds):
             logger.info("提交给大模型的参数(第%d轮): %s" % (round_no + 1, json.dumps(params, ensure_ascii=False, default=str)))
@@ -240,13 +240,12 @@ async def chat_openai_completions(
                 logger.warning("大模型返回序列化失败: %s", e)
             choice = result.choices[0] if result.choices else None
             if not choice:
-                return {"data": ""}
+                return result.model_dump() if hasattr(result, "model_dump") else {"choices": [], "model": params.get("model", "")}
             msg = choice.message
             tool_calls = getattr(msg, "tool_calls", None) or []
-            # 无需调用工具（直接文本回复）或已结束：提取 content 返回 {data: content}
+            # 无需调用工具（直接文本回复）或已结束：返回完整 OpenAI 结构
             if choice.finish_reason == "stop" or not tool_calls:
-                content = getattr(msg, "content", None) or ""
-                return {"data": content if isinstance(content, str) else str(content)}
+                return result.model_dump()
             # 需要调用工具：执行后继续请求
             messages = list(params.get("messages", []))
             messages.append(_message_to_dict(msg))
@@ -262,12 +261,10 @@ async def chat_openai_completions(
                 content = await _run_tool_and_to_content(name, args)
                 messages.append({"role": "tool", "tool_call_id": tc_id, "content": content})
             params["messages"] = messages
-        # 达到最大轮次仍未 stop：按最后一条消息的 content 返回
-        if result and result.choices:
-            msg = result.choices[0].message
-            content = getattr(msg, "content", None) or ""
-            return {"data": content if isinstance(content, str) else str(content)}
-        return {"data": ""}
+        # 达到最大轮次仍未 stop：返回最后一轮完整结果
+        if result and hasattr(result, "model_dump"):
+            return result.model_dump()
+        return {"choices": [], "model": params.get("model", ""), "object": "chat.completion"}
 
 
 async def _do_chat_completions(

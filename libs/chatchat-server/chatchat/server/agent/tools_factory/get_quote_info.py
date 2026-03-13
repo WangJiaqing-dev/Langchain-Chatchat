@@ -16,14 +16,14 @@ from langchain_chatchat.agent_toolkits.all_tools.tool import (
 @regist_tool(title="Quote info query")
 def get_quote_info(
     quotenum: str = Field(
-        description="Quote number provided by the user. Supports multiple formats (e.g. U-250310-001, C-140829063653). Pass the value as-is; do not refuse to call based on format; let the API return the result or error."
+        description="Quote number provided by the user. Pass the value as-is; do not refuse to call based on format; let the API return the result or error."
     ),
 ):
-    """Call this tool when the user asks for quote info, price, cost, lead time, etc. for a quote. Quote numbers may be in various formats (U-*, C-*, etc.); pass the user's value as-is and do not refuse based on format; whether it is queryable is determined by the API response."""
+    """Call this tool when the user asks for quote info, price, cost, lead time, etc. for a quote. whether it is queryable is determined by the API response."""
 
     config = get_tool_config("get_quote_info")
     base_url = (config.get("base_url") or "http://127.0.0.1:8000").rstrip("/")
-    url = f"{base_url}/api/customer/getToolingPriceByQuotenum"
+    url = f"{base_url}/api/customer/get_quote_info"
     params = {"quotenum": quotenum}
 
     try:
